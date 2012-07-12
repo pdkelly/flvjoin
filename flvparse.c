@@ -58,7 +58,7 @@ static void parse_file(FILE *infile)
     }
    
     while(1)
-    {	
+    {
         unsigned int prev_tag_length;
        
         /* Read back-pointer and exit if there's nothing after it */
@@ -68,67 +68,98 @@ static void parse_file(FILE *infile)
         printf("Prev. tag length: %d bytes\n", prev_tag_length);
        
         if( feof(infile) )
-	{
-	    fprintf(stderr,"EOF after back pointer; exiting.\n");
-	    break;
-	}       
+        {
+            fprintf(stderr,"EOF after back pointer; exiting.\n");
+            break;
+        }       
        
         /* Read the tag header */
-	{   
-	    unsigned char tag_type;
-	    unsigned int datasize, timestamp;
-	   
+        {   
+            unsigned char tag_type;
+            unsigned int datasize, timestamp;
+           
             size = fread( buff, 1, 11, infile );
-	   
-	    tag_type = buff[0];
-	    datasize = conv_ui24(&buff[1], 0);
-	    timestamp = conv_ui24(&buff[4], buff[7]);
+           
+            tag_type = buff[0];
+            datasize = conv_ui24(&buff[1], 0);
+            timestamp = conv_ui24(&buff[4], buff[7]);
 
-	    switch(tag_type)
-	    {
-	        case 8:
-	            printf( "Audio Tag, ");
-	            break;
-	        case 9:
-	            printf( "Video Tag, ");
-	            break;
-	        case 18:
-	            printf( "Script Tag, ");
-	            break;
-	        default:
-	            printf( "Undefined Tag (Type %d), ", tag_type);
-	            break;
-	    }
-	    printf( "%d bytes. Timestamp %dms.\n", datasize, timestamp);
+            switch(tag_type)
+            {
+                case 8:
+                    printf( "Audio Tag, ");
+                    break;
+                case 9:
+                    printf( "Video Tag, ");
+                    break;
+                case 18:
+                    printf( "Script Tag, ");
+                    break;
+                default:
+                    printf( "Undefined Tag (Type %d), ", tag_type);
+                    break;
+            }
+            printf( "%d bytes. Timestamp %dms.\n", datasize, timestamp);
 
-	    if( tag_type == 18 )
-	    {
-	        /* Read and parse script tag data */
-	        unsigned char object_end[] = { 2, 0, 0, 9 };
-	        unsigned char *pos;
-	       
-	        if( datasize > buffsize )
-		    buff = realloc( buff, datasize );
-	        fread( buff, 1, datasize, infile );
+            if( tag_type == 18 )
+            {
+                /* Read and parse script tag data */
+                unsigned char object_end[] = { 2, 0, 0, 9 };
+                unsigned char *pos;
+               
+                if( datasize > buffsize )
+                    buff = realloc( buff, datasize );
+                fread( buff, 1, datasize, infile );
 
-	        pos = buff;
-	        do {		    
-	            pos = parse_script_object(pos);
-		   
-		    if( memcmp(pos, object_end, 4) != 0 )
+                pos = buff;
+                do {
+                    pos = parse_script_object(pos);
+
+                    if( memcmp(pos, object_end, 4) != 0 )
                         printf( "WARNING: Script Object closing bytes missing.\n");
-		    else
-		        /* Skip over closing bytes if present */
-		        pos += 4;
+                    else
+                        /* Skip over closing bytes if present */
+                        pos += 4;
 
-		    printf("--Script Object End\n");
-	        } while( (pos - buff) < datasize );	        
-	    }
-	    else
-	        /* Skip over payload */
-	        fseek( infile, datasize, SEEK_CUR );
-	}       
-       
+                    printf("--Script Object End\n");
+                } while( (pos - buff) < datasize );
+            }
+            else if( tag_type == 9 )
+            {
+                /* Check for H.264/AVC special packets and report if present */
+                fread(buff, 1, 2, infile);
+
+                if((buff[0] & 0xf0) >> 4 == 1) /* frame type */
+                    printf("Keyframe");
+
+                if((buff[0] & 0x0f) == 7) /* codec ID */
+                {
+                    /* AVC video packet */
+                    switch(buff[1])
+                    {
+                         case 0:
+                             printf("  AVC sequence header");
+                             break;
+                         case 1:
+                             printf("  AVC NAL unit");
+                             break;
+                         case 2:
+                             printf("  AVC end of sequence");
+                             break;
+                         default:
+                             printf("  Unrecognised AVC packet type!");
+                             break;
+                    }
+                }
+
+                putchar('\n');
+                fseek(infile, datasize-2, SEEK_CUR);
+            }
+            else
+                /* Skip over payload */
+                fseek( infile, datasize, SEEK_CUR );
+        }       
+
     }
 
     return;
@@ -142,7 +173,7 @@ unsigned char *parse_script_object(unsigned char *pos)
     printf("--Script Object Start\n");
    
     if( marker != 2 )
-    {	
+    {
         printf( "WARNING: Script Object Marker Byte missing.\n");
         pos--;
     }   
@@ -155,7 +186,7 @@ unsigned char *parse_script_object(unsigned char *pos)
     if( memcmp(pos, variable_end, 3) != 0 )
         printf( "WARNING: Script variable closing bytes missing.\n");
     else
-	/* Skip over closing bytes if present */
+        /* Skip over closing bytes if present */
         pos += 3;
 
     return pos;
@@ -199,51 +230,51 @@ unsigned char *parse_script_variable(unsigned char *pos)
             break;
         case 8:
             printf("ECMA Array\t");
-	    {
-	        int array_length = conv_ui32(pos);
-		int count;
-		       
-		pos += 4;
-		printf("Length: %d variables\n", array_length);
-		    
-		for( count = 0; count < array_length; count++ )
-		{
+            {
+                int array_length = conv_ui32(pos);
+                int count;
+
+                pos += 4;
+                printf("Length: %d variables\n", array_length);
+
+                for( count = 0; count < array_length; count++ )
+                {
                     printf( "Variable %d\tName: ", count);
-		    pos = parse_script_string(pos + 2, conv_ui16(pos));
+                    pos = parse_script_string(pos + 2, conv_ui16(pos));
                     printf( "\tType: ");    
-		    pos = parse_script_variable(pos);
-		}		       
-	    }
+                    pos = parse_script_variable(pos);
+                }
+            }
             break;
         case 10:
             printf("Script Array\t");
-	    {
-	        int array_length = conv_ui32(pos);
-		int count;
-		       
-		pos += 4;
-		printf("Length: %d variables\n", array_length);
-		    
-		for( count = 0; count < array_length; count++ )
-		{		    
+            {
+                int array_length = conv_ui32(pos);
+                int count;
+
+                pos += 4;
+                printf("Length: %d variables\n", array_length);
+
+                for( count = 0; count < array_length; count++ )
+                {
                     printf( "Variable %d\tType: ", count);
-		    pos = parse_script_variable(pos);
-		}	       
-	    }
+                    pos = parse_script_variable(pos);
+                }
+            }
             break;
         case 11:
             printf("Date\t");
-	    {
-	        time_t timestamp = conv_double(pos) / 1000; /* value is millisecs since epoch */
-	        short tz_offset;
+            {
+                time_t timestamp = conv_double(pos) / 1000; /* value is millisecs since epoch */
+                short tz_offset;
 
-	        pos += sizeof(double);
-	        tz_offset = conv_si16(pos);
-	        pos +=2;
-	       
-	        printf("Value: %s\tTimezone: %+g\n", asctime(gmtime(&timestamp)),
-		       (double) tz_offset / 60);
-	    }
+                pos += sizeof(double);
+                tz_offset = conv_si16(pos);
+                pos +=2;
+
+                printf("Value: %s\tTimezone: %+g\n", asctime(gmtime(&timestamp)),
+                       (double) tz_offset / 60);
+            }
             break;
         case 12:
             printf("Long String\tValue: ");
@@ -261,12 +292,12 @@ unsigned char *parse_script_variable(unsigned char *pos)
 unsigned char *parse_script_string(unsigned char *pos, unsigned int string_length)
 {   
     unsigned int count;
-   
+
     for( count = 0; count < string_length; count++)
         putchar((char)pos[count]);   
-	       
+
     pos += string_length;
-   
+
     return pos;
 }
 
@@ -277,18 +308,18 @@ int main(int argc, char **argv)
 
     if(argc > 1)
     {
-	fd = fopen(argv[1], "rb");
-	if(!fd)
-	{
-	    fprintf(stderr, "Error opening file %s\n", argv[1]);
-	    exit(1);
-	}
+        fd = fopen(argv[1], "rb");
+        if(!fd)
+        {
+            fprintf(stderr, "Error opening file %s\n", argv[1]);
+            exit(1);
+        }
     } 
     else
-	fd = stdin;
+        fd = stdin;
 
     parse_file(fd);
-   
+
     fclose(fd);
 
     return 0;

@@ -39,6 +39,8 @@ static int frame_interval = 100;
 static char filepath[MAX_NAME_LEN];
 static FILE *outfile = NULL;
 
+static struct FLVpacket seq_header_pkt;
+
 static unsigned int last_video_timestamp;
 static long last_audio_timestamp = -1;
 static unsigned int last_packet_size;
@@ -290,7 +292,6 @@ static void append_file(const char *filename, unsigned int mark_in, unsigned int
         static size_t max_datasize = 0;
         size_t size;
         char key_frame = 0;
-        char reject_after_check = 0;
 
         /* Read the tag header (11 bytes) */
         size = fread( buff, 1, 11, infile );
@@ -308,27 +309,15 @@ static void append_file(const char *filename, unsigned int mark_in, unsigned int
          * 4 bytes timestamp
          * 3 bytes streamid
          * data payload (size specified previously)
-	 *      (for a video packet, first nibble of payload indicates frame type)
+	 *      (for a video packet, first nibble of payload indicates frame type;
+	 *       however H.264 sequence headers are marked as if they were key 
+	 *       frames - so first two bytes need to be checked to determine whether
+	 *       or not the video packet contains a keyframe)
          * 4 bytes backpointer
          */
         packet.type = buff[0];       
         packet.datasize = conv_ui24(&buff[1], 0);
         packet.timestamp = conv_ui24(&buff[4], buff[7]);
-        if( packet.timestamp < mark_in ||             /* Before mark in point */
-	    packet.timestamp >= mark_out ||           /* After mark out point */
-            (packet.type != 8 && packet.type != 9) ) /* Non video or audio packet */
-	{
-	    if(!metadata_extracted && !no_meta)
-	        /* We'll check this packet to see if it contains useful metadata, but
-		 * we've no use for it beyond that and should reject it afterwards */
-	        reject_after_check = 1;
-	    else
-	    {	
-                /* Skip over data bytes and jump to next packet */
-                fseek( infile, packet.datasize + 4, SEEK_CUR ); /* +4 to include closing back pointer */
-                continue;
-	    }
-        }
         packet.streamid = conv_ui24(&buff[8], 0);
         if( packet.datasize > max_datasize )
         {
@@ -342,16 +331,32 @@ static void append_file(const char *filename, unsigned int mark_in, unsigned int
         /* backptr should equal the number of bytes in the whole packet including the payload and the
          * header; could use it as a sanity check if necessary */
         packet.backptr = conv_ui32(buff);
-       
-        if(!metadata_extracted && !no_meta)
+
+        if(packet.type == 18) /* Script data */
 	{
-            /* Attempt to extract metadata from this packet */
-	    metadata_extracted = extract_metadata(&packet);
-	    if(!quiet && metadata_extracted)
-	        fprintf(stderr, "Metadata successfully extracted.\n");
-	    if(reject_after_check)
-	        continue; /* Jump to next packet */
+            if(!metadata_extracted && !no_meta)
+	    {
+                /* Attempt to extract metadata from this packet */
+	        metadata_extracted = extract_metadata(&packet);
+	        if(!quiet && metadata_extracted)
+	            fprintf(stderr, "Metadata successfully extracted.\n");
+	    }
+	    continue; /* Jump to next packet */
 	}
+
+        if(!seq_header_pkt.data && packet.type == 9 &&
+	   (packet.data[0] & 0x0f) == 7 && packet.data[1] == 0) /* AVC sequence header */
+	{
+	    seq_header_pkt = packet;
+            seq_header_pkt.data = malloc(packet.datasize);
+            memcpy(seq_header_pkt.data, packet.data, packet.datasize);
+	    continue; /* Jump to next packet */
+	}
+
+        if(packet.timestamp < mark_in ||             /* Before mark in point */
+	   packet.timestamp >= mark_out ||           /* After mark out point */
+           (packet.type != 8 && packet.type != 9))   /* Non video or audio packet */
+	    continue; /* Jump to next packet */
 
         if( packet.type == 8 )
 	    key_frame = 1; /* All audio packets are keyframes */
@@ -441,6 +446,14 @@ static void buffer_packet(struct FLVpacket *packet, long file_start_timestamp, c
 
         for( i = 0; i < packets; i++ )
         {
+	    if(seq_header_pkt.data && pktarray[i].type == 9)
+	    {
+	        /* Write sequence header immediately before first video packet */
+	        seq_header_pkt.timestamp = pktarray[i].timestamp;
+	        write_packet(&seq_header_pkt, file_start_timestamp);
+	        free(seq_header_pkt.data);
+	        seq_header_pkt.data = NULL;
+	    }
             write_packet( &pktarray[i], file_start_timestamp );
             free(pktarray[i].data);
         }

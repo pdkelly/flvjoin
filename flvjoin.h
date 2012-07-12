@@ -1,5 +1,5 @@
 #define PROG_NAME    "flvjoin"
-#define PROG_VERSION "0.9"
+#define PROG_VERSION "0.91"
 
 struct FLVpacket
 {

@@ -186,7 +186,7 @@ int extract_metadata(struct FLVpacket *packet)
         /* Script Object Marker Byte missing */
         pos--;
 
-    /* Check for onMetaData object name, non-watertight check
+    /* Check for onMetaData object name; non-watertight check
      * for buffer over-run */
     while(pos - packet->data <= packet->datasize - 6)
     {	

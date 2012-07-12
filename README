@@ -1,7 +1,7 @@
 flvjoin
 =======
 
-Version 0.9, 27 January 2009
+Version 0.91, 10 February 2009
 Written by Paul Kelly
 Copyright (C) 2007-09 Radiomonitor Ltd.
 
@@ -78,6 +78,9 @@ reduce confusion in this event, it is possible to suppress writing of the
 metadata to the output file with the -n flag. See the section "flvjoin and
 metadata" below for more detailed information on the behaviour of flvjoin in
 relation to metadata.
+
+As of version 0.91 the program correctly handles FLV files with video data
+encoded in the H.264 (a.k.a. AVC) format.
 
 
 Further Usage Notes
