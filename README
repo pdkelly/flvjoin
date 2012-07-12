@@ -1,0 +1,146 @@
+flvjoin
+=======
+
+Version 0.9, 27 January 2009
+Written by Paul Kelly
+Copyright (C) 2007-09 Radiomonitor Ltd.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+Usage
+-----
+
+flvjoin -o <filename> [-f <framerate>] [-b <bitrate>] [-n] [-q] [-h]
+
+   -o <filename>   Output File (- for stdout)
+   -f <framerate>  Video frame rate in frames per second (default 10.00)
+   -b <bitrate>    Audio bitrate in bits per second (default 32000)
+   -n              Don't write metadata to output file
+   -q              Don't display progress information
+   -h              Display this usage message and exit
+
+
+Installation
+------------
+
+The program has no dependencies and can be compiled by issuing a simple
+"make" command. The companion utility flvparse will also be compiled; this
+has the ability to parse an FLV file and print diagnostic details to the
+screen. To install the two programs issue the following command
+make install PREFIX=/usr
+This will install to /usr/bin (the default value of PREFIX is /usr/local).
+
+
+Overview
+--------
+
+This utility can be used to join a series of Flash Video (FLV) files or
+parts of files into one larger FLV file for seamless playback. The input
+files to be joined are read from standard input and the output FLV data is
+written to the file specified by the -o option. The streams are synchronised
+at the join based on the video framerate; it is therefore important to
+ensure that this is specified correctly with the -f option.
+
+The format of the lines accepted on standard input should be as follows:
+
+filename [inpoint [outpoint]]
+
+* If filename alone is specified, then the entire file is appended to the
+output file.
+* If inpoint is additionally specified (in seconds; decimal values are
+acceptable) it will be treated as as the cut-in point and only data frames
+in the input file with a timestamp after this point will be appended to the
+output. Note: non-keyframe video frames will be skipped until the first 
+video keyframe after the cut-in point occurs; this may result in a short 
+period of audio with no video at the start of the appended file.
+* If outpoint is additionally specifed as well as inpoint (again in seconds
+from the start of the file), then it is treated as the cut-out point and no
+data frames with a timestamp after this point will be included in the
+appended file.
+
+Any number and combination of input filenames and editing information may be
+supplied in this way. The input data packet timestamps will be adjusted to 
+compensate for the current file's place in the sequence of appended files, 
+before being written to the output file with the data payloads unmodified. 
+The FLV file header and any non-video and audio packets in the input files 
+are ignored. When EOF is received on stdin, the output file is closed.
+
+The program will write an "onMetaData" object (describing various metadata
+properties of the audio and video streams) to the output file following the
+header, immediately before the first audio or video packet. The metadata
+fields (with the exception of duration and filesize, which are calculated)
+are copied from an "onMetaData" object contained within one of the input
+files. If this is not available, the metadata fields will be set to zero. To
+reduce confusion in this event, it is possible to suppress writing of the
+metadata to the output file with the -n flag. See the section "flvjoin and
+metadata" below for more detailed information on the behaviour of flvjoin in
+relation to metadata.
+
+
+Further Usage Notes
+-------------------
+
+ - The maximum length of input and output filenames (including the full path)
+is 1024 characters.
+ - If the output file already exists, flvjoin will refuse to overwrite it and 
+exit.
+ - The header written to the output file specifies that the output file
+contains both a video and an audio stream - this may cause problems if the
+program is used to join files that contain only one stream.
+ - This version of the program will correctly process input files that
+contain only raw FLV data packets, i.e. no 13-byte header, but this feature
+may be removed in a later version.
+ - The video framerate is used to synchronise the joins between the files.
+The video framerate and audio bitrate are used to calculate the correct file
+duration for the metadata (by adding the duration of the last packet to its
+timestamp).
+
+
+flvjoin and Metadata
+--------------------
+
+FLV files often contain metadata describing duration, filesize, image
+dimensions, keyframe location and so on. This is *not* required for correct
+playback, but is potentially useful when the file is being streamed over a
+network rather than played back from a local disk. E.g. some FLV players
+require correct metadata in order to show a progress bar.
+
+Unless the -n flag is specified (in which case all the metadata is omitted),
+this version of flvjoin writes the following metadata fields to the output file:
+
+duration
+width
+height
+framerate
+videocodecid
+audiosamplerate
+audiosamplesize
+stereo
+audiocodecid
+filesize
+metadatacreator  
+
+The meanings of each of the fields are as defined in "Video File Format
+Specification Version 10", Chapter 1, section "onMetaData". "metadatacreator"
+is an additional field consisting of a string containing the name and
+version of this utility. With the exception of duration and filesize, which
+have exact values calculated based on the content of the output file, all
+the fields are simply copied from the first input file that contains an
+"onMetaData object". The number of fields in the output is not customisable;
+if the input file does not contain a certain field, that field will be left
+equal to zero in the output.
+
+
+Bugs / Issues
+-------------
+
+ * The video framerate and audio bitrate should be autodetected if they are
+not specified on the command line
+
+--
+paul@stjohnspoint.co.uk
+
+Belfast, January 2009.
